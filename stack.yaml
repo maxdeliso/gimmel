@@ -1,0 +1,4 @@
+resolver: nightly-2020-09-27
+
+packages:
+- '.'

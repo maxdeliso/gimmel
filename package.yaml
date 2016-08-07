@@ -1,0 +1,30 @@
+name:                gimmel
+version:             0.2.0.0
+github:              "https://github.com/maxdeliso/gimmel"
+license:             MIT
+author:              "Max DeLiso"
+maintainer:          "me@maxdeliso.name"
+copyright:           "2020 Joseph Maximilian DeLiso"
+
+extra-source-files:
+- README.md
+
+description: a simple chat server
+
+dependencies:
+- base>=4
+- optparse-applicative>=0.15
+- containers>=0.6
+- stm>=2.5
+- network>=3.1
+- aeson>=1.5
+- bytestring>=0.10
+
+executables:
+  gimmel-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
