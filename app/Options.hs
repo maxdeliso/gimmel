@@ -1,7 +1,7 @@
 module Options(Options, portNumOpt, msgSizeOpt, optParser) where
 
 import Options.Applicative
-    ( auto, help, long, metavar, option, short, switch, value, Parser )
+    ( auto, help, long, metavar, option, short, value, Parser )
 
 data Options = MkOptions
   { portNumOpt :: Int

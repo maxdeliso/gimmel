@@ -1,0 +1,13 @@
+cradle:
+  cabal:
+    - path: "app/Main.hs"
+      component: "gimmel:exe:gimmel-exe"
+
+    - path: "app/Message.hs"
+      component: "gimmel:exe:gimmel-exe"
+
+    - path: "app/Net.hs"
+      component: "gimmel:exe:gimmel-exe"
+
+    - path: "app/Options.hs"
+      component: "gimmel:exe:gimmel-exe"
