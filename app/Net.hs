@@ -15,6 +15,7 @@ import Network.Socket
     ( defaultHints, getAddrInfo, withSocketsDo, bind, socket,
       AddrInfo(addrFlags, addrFamily, addrSocketType, addrProtocol, addrAddress),
       AddrInfoFlag(AI_NUMERICSERV, AI_PASSIVE),
+      PortNumber,
       SockAddr,
       Socket,
       SocketType(Datagram) )
@@ -27,7 +28,7 @@ import System.IO.Unsafe ( unsafePerformIO )
 netMain :: Options -> IO ()
 netMain userOptions =
   withSocketsDo $ do
-    serverAddrs <- getCandidateAddresses $ show $ portNumOpt userOptions
+    serverAddrs <- getExternalPortAddress ( read $ show (portNumOpt userOptions) :: PortNumber )
     mapM_ connectAndRun $ zip serverAddrs $ replicate (length serverAddrs) (msgSizeOpt userOptions)
 
 -- bind and serve
@@ -53,14 +54,13 @@ peersSeen :: TVar (S.Set SockAddr)
 peersSeen = unsafePerformIO $ newTVarIO S.empty
 
 -- construct a list of candidate address information structures
-getCandidateAddresses :: String -> IO [AddrInfo]
-getCandidateAddresses portString =
+getExternalPortAddress :: PortNumber -> IO [AddrInfo]
+getExternalPortAddress port =
+  let hints = defaultHints {addrFlags = [AI_PASSIVE, AI_NUMERICSERV], addrSocketType = Datagram} in
   getAddrInfo
-    (Just
-       defaultHints
-       {addrFlags = [AI_PASSIVE, AI_NUMERICSERV], addrSocketType = Datagram})
+    (Just hints)
     Nothing
-    (Just $ portString)
+    (Just $ show port)
 
 -- given an incoming lazy bytestring, parse it and conditionally broadcast
 processIncoming :: Socket -> BL.ByteString -> S.Set SockAddr -> IO ()
