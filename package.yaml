@@ -1,6 +1,6 @@
 name:                gimmel
-version:             0.2.0.0
-github:              "https://github.com/maxdeliso/gimmel"
+version:             0.2.0.1
+github:              "maxdeliso/gimmel"
 license:             MIT
 author:              "Max DeLiso"
 maintainer:          "me@maxdeliso.name"
@@ -17,7 +17,7 @@ dependencies:
 - containers>=0.6
 - stm>=2.5
 - network>=3.1
-- aeson>=1.5
+- aeson>=2.0
 - bytestring>=0.10
 
 executables:
