@@ -1,26 +1,19 @@
 name: Haskell CI
 
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+on: [push]
+
+jobs:
+  runhaskell:
+    name: Stack build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: haskell/actions/setup@v2
+        with:
+          ghc-version: '8.10.7' # https://www.stackage.org/lts-18.25
+          enable-stack: true
+          stack-version: 'latest'
+      - run: stack build
 
 permissions:
   contents: read
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-haskell@v1
-      with:
-        ghc-version: '8.10.3'
-        cabal-version: '3.2'
-    - name: Install dependencies
-      run: |
-        cabal update
-        cabal build --only-dependencies
-    - name: Build
-      run: cabal build
