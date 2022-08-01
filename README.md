@@ -53,3 +53,6 @@ previously successfully delivered a message.
 * https://code.visualstudio.com/
 * https://www.haskell.org/ghcup/
 * https://github.com/haskell/vscode-haskell
+
+
+[![Haskell CI](https://github.com/maxdeliso/gimmel/actions/workflows/haskell.yml/badge.svg)](https://github.com/maxdeliso/gimmel/actions/workflows/haskell.yml)
