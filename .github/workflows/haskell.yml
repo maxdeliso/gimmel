@@ -8,11 +8,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: haskell/actions/setup@v2
+      - uses: haskell/actions/setup@v1.1
         with:
-          ghc-version: '8.10.7' # https://www.stackage.org/lts-18.25
+          ghc-version: "9.2.5"
           enable-stack: true
-          stack-version: 'latest'
+          stack-version: "latest"
       - run: stack build
 
 permissions:
