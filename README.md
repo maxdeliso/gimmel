@@ -1,7 +1,6 @@
 # gimmel
 
 UDP chat server
----
 
 UDP packets that are received are decoded as JSON and then sent to every address that has
 previously successfully delivered a message.
@@ -10,14 +9,14 @@ previously successfully delivered a message.
 
 ### terminal 1
 
-#### commands
+#### commands 1
 
 `cd src/gimmel`
 `stack run`
 
 ### terminal 2
 
-#### commands
+#### commands 2
 
 `jo to=2 msg=hi | nc localhost -u 1337`
 
@@ -31,7 +30,7 @@ previously successfully delivered a message.
 
 ### terminal 3
 
-#### commands
+#### commands 3
 
 `jo to=1 msg='hiback' | nc localhost -u 1337`
 
@@ -41,18 +40,17 @@ previously successfully delivered a message.
 
 ## test dependencies
 
-* https://github.com/jpmens/jo
-* https://en.wikipedia.org/wiki/Netcat
+* <https://github.com/jpmens/jo>
+* <https://en.wikipedia.org/wiki/Netcat>
 
 ## build dependencies
 
-* https://docs.haskellstack.org/en/stable/README/
+* <https://docs.haskellstack.org/en/stable/README/>
 
 ## dev dependencies
 
-* https://code.visualstudio.com/
-* https://www.haskell.org/ghcup/
-* https://github.com/haskell/vscode-haskell
-
+* <https://code.visualstudio.com/>
+* <https://www.haskell.org/ghcup/>
+* <https://github.com/haskell/vscode-haskell>
 
 [![Haskell CI](https://github.com/maxdeliso/gimmel/actions/workflows/haskell.yml/badge.svg)](https://github.com/maxdeliso/gimmel/actions/workflows/haskell.yml)

@@ -2,3 +2,4 @@ dist/
 .stack-work/
 gimmel.cabal
 dist-newstyle/
+*.log
