@@ -3,3 +3,4 @@ dist/
 gimmel.cabal
 dist-newstyle/
 *.log
+.vscode/

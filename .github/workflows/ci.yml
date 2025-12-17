@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Haskell
+        uses: haskell-actions/setup@v2
+        with:
+          enable-stack: true
+          stack-version: 3.7.1
+          stack-setup-ghc: true
+
+      - name: Build
+        run: stack build
+
+      - name: Test
+        run: stack test
+

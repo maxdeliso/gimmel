@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 
 module Message
-  ( Message
+  ( Message(..)
   , encodeMsg
   , decodeMsg
   ) where
