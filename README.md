@@ -7,36 +7,26 @@ previously successfully delivered a message.
 
 ## howto
 
-### terminal 1
+## Testing
 
-#### commands 1
+To test the server:
 
-`cd src/gimmel`
-`stack run`
+1. **Start the server** in one terminal:
+   ```bash
+   stack run
+   ```
 
-### terminal 2
+2. **Send UDP packets** from a separate terminal. On Windows with Nmap's `ncat` (assuming IPv6):
+   ```bash
+   C:\Users\me>ncat -v -u -6 localhost 1337
+   ```
 
-#### commands 2
+   You can then type JSON messages like:
+   ```json
+   {"msg":"hello","to":0}
+   ```
 
-`jo to=2 msg=hi | nc localhost -u 1337`
-
-### output log (before 3)
-
-`{"to":1,"msg":"hi"}`
-
-### output log (after 3)
-
-`{"to":1,"msg":"hi"}{"to":2,"msg":"hiback"}`
-
-### terminal 3
-
-#### commands 3
-
-`jo to=1 msg='hiback' | nc localhost -u 1337`
-
-#### output log
-
-`{"to":1,"msg":"hiback"}`
+3. **Server operator can respond** via the TUI - simply type your message in the input box and press Enter to send it to all connected peers.
 
 ## test dependencies
 
@@ -53,4 +43,4 @@ previously successfully delivered a message.
 * <https://www.haskell.org/ghcup/>
 * <https://github.com/haskell/vscode-haskell>
 
-[![Haskell CI](https://github.com/maxdeliso/gimmel/actions/workflows/haskell.yml/badge.svg)](https://github.com/maxdeliso/gimmel/actions/workflows/haskell.yml)
+[![Haskell CI](https://github.com/maxdeliso/gimmel/actions/workflows/ci.yml/badge.svg)](https://github.com/maxdeliso/gimmel/actions/workflows/ci.yml)
