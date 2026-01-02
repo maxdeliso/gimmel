@@ -1,16 +1,16 @@
 {-# LANGUAGE DeriveGeneric #-}
 
-module Message
-  ( Message(..)
-  , encodeMsg
-  , decodeMsg
-  ) where
+module Message (
+  Message (..),
+  encodeMsg,
+  decodeMsg,
+) where
 
-import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.Aeson (FromJSON, ToJSON, decode, encode)
+import qualified Data.ByteString.Lazy.Char8 as BL
 import GHC.Generics (Generic)
 
-data Message = Message { to :: Integer, msg :: String }
+data Message = Message {to :: Integer, msg :: String}
   deriving (Show, Generic)
 
 instance FromJSON Message

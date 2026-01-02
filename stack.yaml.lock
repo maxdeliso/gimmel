@@ -46,6 +46,20 @@ packages:
       size: 7264
   original:
     hackage: time-1.12.2@sha256:88e8493d9130038d3b9968a2530a0900141cd3d938483c83dde56e12b875ebc8,6510
+- completed:
+    hackage: Cabal-syntax-3.10.3.0@sha256:5904508da905b34d995a704a86970de489cc4495dd981b1cfe5fb5baa2bde71b,7672
+    pantry-tree:
+      sha256: 9fc66c9d0e6d487de26a25453a9b87631871e77e0250456a28b2bc87aff4c569
+      size: 11052
+  original:
+    hackage: Cabal-syntax-3.10.3.0@sha256:5904508da905b34d995a704a86970de489cc4495dd981b1cfe5fb5baa2bde71b,7672
+- completed:
+    hackage: fourmolu-0.13.1.0@sha256:bb4428d6069e4d09475e613cf8c0a1d8ce442bd1aef4aa0e069b21ce7c8f0f4b,6999
+    pantry-tree:
+      sha256: e5085af775945c2fc456ced07428da5f02873a4503fc11f562524403bb1f7cac
+      size: 155362
+  original:
+    hackage: fourmolu-0.13.1.0
 snapshots:
 - completed:
     sha256: 238fa745b64f91184f9aa518fe04bdde6552533d169b0da5256670df83a0f1a9

@@ -1,358 +1,336 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE TemplateHaskell #-}
 
-module TUI
-  ( ServerState(..)
-  , ServerEvent(..)
-  , initTUI
-  , runTUI
-  , updateTUI
-  , shutdownTUI
-  ) where
+module TUI (
+  -- * Core Types
+  ServerState (..),
+  ServerEvent (..),
 
-import Control.Concurrent ( forkIO )
-import Control.Concurrent.STM
-    ( atomically, newTChanIO, readTChan, writeTChan, TChan, TVar, readTVar, readTVarIO, writeTVar, newTVarIO )
-import Control.Monad ( forever, when, unless )
+  -- * Lifecycle
+  initTUI,
+  runTUI,
+  updateTUI,
+  peers, -- Export peers accessor for Main.hs compatibility
+) where
+
+import Control.Concurrent (forkIO)
+import Control.Concurrent.STM (
+  TChan,
+  TVar,
+  atomically,
+  newTChanIO,
+  newTVarIO,
+  readTChan,
+  readTVar,
+  writeTChan,
+  writeTVar,
+ )
+import Control.Monad (forever, void)
+import Control.Monad.IO.Class (liftIO)
+import Data.Char (isControl, isPrint)
+import qualified Data.Map as M
 import qualified Data.Set as S
-import Network.Socket ( SockAddr )
-import Graphics.Vty
-    ( Vty, defaultConfig, update, picForImage, string
-    , withStyle, defAttr, bold, withForeColor
-    , green, red, blue, yellow, magenta, cyan, white, black
-    , emptyImage, Image, (<->), (<|>)
-    , nextEvent, Event(EvKey, EvResize), Key(KChar, KBS, KEnter), Modifier(MCtrl)
-    )
-import Graphics.Vty.CrossPlatform ( mkVty )
+import Data.Text (Text)
+import qualified Data.Text as T
+import Lens.Micro ((%~), (&), (.~), (^.))
+import Lens.Micro.TH (makeLenses)
+import Network.Socket (SockAddr)
+
+-- Brick Imports
+import Brick (
+  App (..),
+  AttrName,
+  BrickEvent (..),
+  EventM,
+  Padding (Max),
+  ViewportType (Vertical),
+  Widget,
+  attrMap,
+  attrName,
+  customMain,
+  fill,
+  get,
+  hBox,
+  hLimitPercent,
+  halt,
+  modify,
+  padRight,
+  put,
+  showFirstCursor,
+  str,
+  txt,
+  vBox,
+  vLimit,
+  viewport,
+  withAttr,
+  zoom,
+  (<+>),
+ )
+import Brick.BChan (newBChan, writeBChan)
+import qualified Brick.Widgets.Border as B
+import qualified Brick.Widgets.Center as C
+import qualified Brick.Widgets.Edit as E
 import qualified Graphics.Vty as V
+import Graphics.Vty.Attributes (defAttr, withForeColor)
+import Graphics.Vty.CrossPlatform (mkVty)
 
--- Terminal-based TUI using vty library
--- Provides a clean, colorful interface with proper terminal handling
+-- | Resource Names (IDs for UI elements)
+data Name = InputField | ChatViewport | PeerListViewport
+  deriving (Ord, Show, Eq)
 
-data ServerEvent
-  = PeerConnected SockAddr
-  | MessageReceived SockAddr Int  -- address, bytes
-  | MessageBroadcast Int  -- number of peers
-  | ParseError String Int  -- error message, bytes
-  | ServerStarted String  -- address
-  | ServerStopped
-  deriving (Show)
+-- | Log levels for categorizing messages
+data LogLevel
+  = -- | General information (cyan) - ServerStarted, MessageReceived
+    LogInfo
+  | -- | Success events (green) - PeerConnected, MessageBroadcast
+    LogSuccess
+  | -- | Errors (red) - ParseError
+    LogError
+  deriving (Eq, Show)
 
--- Unified event type for event-driven architecture
-data AppEvent
-  = NetEvent ServerEvent      -- From UDP network layer
-  | UIEvent V.Event           -- From Keyboard/Resize
+-- | Attribute names for log levels
+logInfoAttr, logSuccessAttr, logErrorAttr :: AttrName
+logInfoAttr = attrName "logInfo"
+logSuccessAttr = attrName "logSuccess"
+logErrorAttr = attrName "logError"
+
+-- | A log entry with level and message
+data LogEntry = LogEntry
+  { logLevel :: LogLevel
+  , logText :: Text
+  }
 
 data ServerState = ServerState
-  { peers :: TVar (S.Set SockAddr)
-  , messagesReceived :: TVar Int
-  , messagesBroadcast :: TVar Int
-  , parseErrors :: TVar Int
-  , serverAddress :: TVar (Maybe String)
-  , isRunning :: TVar Bool
-  , vtyHandle :: TVar (Maybe Vty)
-  , terminalWidth :: TVar Int  -- Dynamic terminal width for resize handling
-  , inputBuffer :: TVar String  -- Current text input buffer
+  { _logMessages :: [LogEntry]
+  -- ^ Chat history with log levels
+  , _peersSet :: S.Set SockAddr
+  -- ^ Connected peers (pure state)
+  , _editor :: E.Editor Text Name
+  -- ^ The input field
+  , _peersTVar :: TVar (S.Set SockAddr)
+  -- ^ Compatibility: Main.hs needs this
+  , _peerMessages :: M.Map SockAddr (S.Set Integer)
+  -- ^ Map of peer addresses to sets of destination (\"to\") IDs observed from them
   }
+
+makeLenses ''ServerState
+
+-- | Compatibility accessor for Main.hs
+peers :: ServerState -> TVar (S.Set SockAddr)
+peers = _peersTVar
+
+-- | Custom Events that drive the UI
+data ServerEvent
+  = ServerStarted String
+  | PeerConnected SockAddr
+  | -- | MessageReceived sender messageId length
+    MessageReceived SockAddr Integer Int
+  | -- | MessageBroadcast sender to msg count
+    MessageBroadcast SockAddr Integer String Int
+  | ParseError String Int
+  | ServerStopped
+
+-- | Pure function: State -> [Widget]
+drawUI :: ServerState -> [Widget Name]
+drawUI st = [ui]
+ where
+  ui =
+    C.center $ -- Centers the box on screen
+      B.borderWithLabel (str " UDP Chat Server ") $
+        padRight Max $
+          hBox
+            [ hLimitPercent 80 $
+                vBox
+                  [ renderPeers (st ^. peersSet)
+                  , B.hBorder
+                  , renderLog (st ^. logMessages)
+                  , B.hBorder
+                  , renderInput (st ^. editor)
+                  ]
+            , B.vBorder
+            , renderPeerList (st ^. peerMessages)
+            ]
+
+-- | Sanitize text for display: remove newlines and control characters
+sanitizeLogText :: Text -> Text
+sanitizeLogText = T.unwords . T.words . T.map replaceControl
+ where
+  replaceControl c
+    | c == '\n' || c == '\r' = ' '
+    | isControl c = ' '
+    | otherwise = c
+
+-- | Get the prefix symbol for a log level
+logPrefix :: LogLevel -> Text
+logPrefix LogInfo = "[i]"
+logPrefix LogSuccess = "[+]"
+logPrefix LogError = "[!]"
+
+-- | Get the attribute name for a log level
+logLevelAttr :: LogLevel -> AttrName
+logLevelAttr LogInfo = logInfoAttr
+logLevelAttr LogSuccess = logSuccessAttr
+logLevelAttr LogError = logErrorAttr
+
+-- | Format a log entry with prefix and color
+formatLogEntry :: LogEntry -> Widget Name
+formatLogEntry (LogEntry level text) =
+  withAttr (logLevelAttr level) $
+    txt (logPrefix level <> " " <> text)
+
+renderPeers :: S.Set SockAddr -> Widget Name
+renderPeers p =
+  vLimit 1 $
+    str ("Connected Peers: " ++ show (S.size p))
+      <+> fill ' ' -- Force width to max to clear garbage
+
+renderLog :: [LogEntry] -> Widget Name
+renderLog logs =
+  -- No vLimit - let it expand to fill remaining space
+  viewport ChatViewport Vertical $
+    vBox $
+      -- Use padRight Max to pad each line to full width
+      map (padRight Max . formatLogEntry) (reverse logs)
+
+renderInput :: E.Editor Text Name -> Widget Name
+renderInput e =
+  vLimit 1 $
+    -- Use 'intercalate' instead of 'unlines' to prevent extra newlines
+    -- Pad with fill ' ' to keep the border stable
+    (str "Broadcast: " <+> E.renderEditor (txt . T.intercalate " ") True e)
+      <+> fill ' '
+
+-- | Render the peer list with destination (\"to\") IDs
+renderPeerList :: M.Map SockAddr (S.Set Integer) -> Widget Name
+renderPeerList peerMap =
+  padRight Max $
+    B.borderWithLabel (str " Peers & Messages ") $
+      viewport PeerListViewport Vertical $
+        vBox $
+          if M.null peerMap
+            then [padRight Max $ txt "No peers yet"]
+            else map renderPeerEntry (M.toList peerMap)
+ where
+  renderPeerEntry :: (SockAddr, S.Set Integer) -> Widget Name
+  renderPeerEntry (addr, msgIds) =
+    vBox
+      [ padRight Max $ txt (T.pack (show addr))
+      , padRight Max $ txt ("  To IDs: " <> T.pack (show (S.toList msgIds)))
+      , padRight Max $ txt " " -- Empty line spacer
+      ]
+
+-- | Handle both Vty events (Keyboard) and App events (Network)
+appEvent :: (String -> IO ()) -> BrickEvent Name ServerEvent -> EventM Name ServerState ()
+appEvent sendCallback ev = case ev of
+  -- A. Handle Network Events (From your Net.hs)
+  AppEvent sev -> case sev of
+    ServerStarted addr ->
+      addLog LogInfo $ "Server listening on " <> T.pack addr
+    PeerConnected peer -> do
+      -- Update both pure state and TVar for compatibility
+      modify $ \s ->
+        s
+          & peersSet %~ S.insert peer
+          & logMessages %~ (LogEntry LogSuccess (sanitizeLogText ("New peer: " <> T.pack (show peer))) :)
+      -- Also update the TVar for Main.hs compatibility
+      st <- get
+      liftIO $ atomically $ do
+        current <- readTVar (st ^. peersTVar)
+        writeTVar (st ^. peersTVar) (S.insert peer current)
+    MessageReceived peer msgId len -> do
+      addLog LogInfo $ T.pack (show peer) <> " sent " <> T.pack (show len) <> " bytes"
+      -- Track the message ID for this peer
+      modify $ \s ->
+        s
+          & peerMessages %~ M.insertWith S.union peer (S.singleton msgId)
+    MessageBroadcast sender toId msg count ->
+      let toStr = if toId == 0 then "all" else T.pack (show toId)
+          msgDisplay = sanitizeLogText (T.pack msg)
+       in addLog LogSuccess $
+            T.pack (show sender)
+              <> " -> "
+              <> toStr
+              <> ": "
+              <> msgDisplay
+              <> " (broadcast to "
+              <> T.pack (show count)
+              <> " peers)"
+    ParseError err _ ->
+      addLog LogError $ T.pack err
+    ServerStopped ->
+      halt -- Stop the UI loop
+
+  -- B. Handle Keyboard Events (Input)
+  VtyEvent vtyE -> case vtyE of
+    V.EvKey V.KEsc [] -> halt
+    V.EvKey V.KEnter [] -> do
+      st <- get
+      let inputs = E.getEditContents (st ^. editor)
+      -- Join lines safely
+      let msg = T.unpack $ T.intercalate " " inputs
+
+      liftIO $ sendCallback msg
+      put $ st & editor .~ E.editor InputField (Just 1) ""
+
+    -- Pass other keys to the editor widget
+    _ -> zoom editor $ E.handleEditorEvent (VtyEvent vtyE) -- Fixed type wrapper
+  _ -> return ()
+ where
+  addLog level text = modify $ logMessages %~ (LogEntry level (sanitizeLogText text) :)
 
 initTUI :: IO (ServerState, TChan ServerEvent)
 initTUI = do
-  peers <- newTVarIO S.empty
-  messagesReceived <- newTVarIO 0
-  messagesBroadcast <- newTVarIO 0
-  parseErrors <- newTVarIO 0
-  serverAddress <- newTVarIO Nothing
-  isRunning <- newTVarIO True
-  vtyHandle <- newTVarIO Nothing
-  terminalWidth <- newTVarIO 60  -- Default width, will be updated on resize
-  inputBuffer <- newTVarIO ""
-  eventChan <- newTChanIO
+  chan <- newTChanIO
+  peersTVar <- newTVarIO S.empty
+  let emptyState =
+        ServerState
+          { _logMessages = []
+          , _peersSet = S.empty
+          , _editor = E.editor InputField (Just 1) ""
+          , _peersTVar = peersTVar
+          , _peerMessages = M.empty
+          }
+  return (emptyState, chan)
 
-  let state = ServerState
-        { peers = peers
-        , messagesReceived = messagesReceived
-        , messagesBroadcast = messagesBroadcast
-        , parseErrors = parseErrors
-        , serverAddress = serverAddress
-        , isRunning = isRunning
-        , vtyHandle = vtyHandle
-        , terminalWidth = terminalWidth
-        , inputBuffer = inputBuffer
-        }
-
-  return (state, eventChan)
-
+-- | Helper for Net.hs to push events
 updateTUI :: TChan ServerEvent -> ServerEvent -> IO ()
-updateTUI chan event = atomically $ writeTChan chan event
+updateTUI chan evt = atomically $ writeTChan chan evt
 
+{- | The Main Loop
+We take the generic TChan and the Network Callback
+-}
 runTUI :: ServerState -> TChan ServerEvent -> (String -> IO ()) -> IO ()
-runTUI state netChan sendMsgFunc = do
-  -- 1. Initialize Vty synchronously (No Waiting!)
-  vty <- mkVty defaultConfig
-  atomically $ writeTVar (vtyHandle state) (Just vty)
+runTUI initialState tChan sendCallback = do
+  -- 1. Create Brick's internal channel
+  bChan <- newBChan 10
 
-  -- Get initial terminal size
-  display <- V.displayBounds (V.outputIface vty)
-  let (w, _) = display
-      initialWidth = max 60 (min w 120)  -- Clamp between 60 and 120
-  atomically $ writeTVar (terminalWidth state) initialWidth
+  -- 2. Spawn the Bridge Thread (TChan -> BChan)
+  void $ forkIO $ forever $ do
+    evt <- atomically $ readTChan tChan
+    writeBChan bChan evt
 
-  -- 2. Create unified event channel
-  appChan <- newTChanIO
+  -- 3. Configure the App
+  let app =
+        App
+          { appDraw = drawUI
+          , appChooseCursor = showFirstCursor
+          , appHandleEvent = appEvent sendCallback
+          , appStartEvent = return ()
+          , appAttrMap =
+              const $
+                attrMap
+                  V.defAttr
+                  [ (logInfoAttr, V.defAttr `withForeColor` V.cyan)
+                  , (logSuccessAttr, V.defAttr `withForeColor` V.green)
+                  , (logErrorAttr, V.defAttr `withForeColor` V.red)
+                  ]
+          }
 
-  -- 3. Fork a Vty Input Bridge
-  -- This thread sleeps inside Vty until a key is pressed, then wakes up.
-  _ <- forkIO $ forever $ do
-    evt <- nextEvent vty
-    atomically $ writeTChan appChan (UIEvent evt)
+  let buildVty = mkVty V.defaultConfig
+  initialVty <- buildVty
 
-  -- 4. Fork a Network Bridge
-  -- Bridge network events into the unified channel
-  _ <- forkIO $ forever $ do
-    evt <- atomically $ readTChan netChan
-    atomically $ writeTChan appChan (NetEvent evt)
-
-  -- 5. The Tickless Loop
-  let loop = do
-        -- BLOCK here until *something* happens. Zero CPU usage while idle.
-        evt <- atomically $ readTChan appChan
-
-        shouldStop <- case evt of
-          UIEvent (EvKey (KChar 'q') []) -> return True
-          UIEvent (EvKey (KChar 'c') [MCtrl]) -> return True
-
-          UIEvent (EvResize w _) -> do
-            -- Handle terminal resize dynamically
-            atomically $ writeTVar (terminalWidth state) (max 60 (min w 120))
-            return False
-
-          -- Handle text input
-          UIEvent (EvKey (KChar c) []) | c /= 'q' -> do
-            -- Add character to input buffer (max 256 chars)
-            atomically $ do
-              buf <- readTVar (inputBuffer state)
-              let maxLen = 256
-              when (length buf < maxLen) $ do
-                writeTVar (inputBuffer state) (buf ++ [c])
-            return False
-
-          UIEvent (EvKey KBS []) -> do
-            -- Backspace: remove last character
-            atomically $ do
-              buf <- readTVar (inputBuffer state)
-              writeTVar (inputBuffer state) (if null buf then buf else init buf)
-            return False
-
-          UIEvent (EvKey KEnter []) -> do
-            -- Enter: send message and clear buffer
-            buf <- readTVarIO (inputBuffer state)
-            unless (null buf) $ do
-              sendMsgFunc buf
-              atomically $ writeTVar (inputBuffer state) ""
-            return False
-
-          UIEvent _ -> return False -- Handle other keys (currently ignored)
-
-          NetEvent serverEvt -> do
-            case serverEvt of
-              -- If the signal handler (or network) says stop, break the loop
-              ServerStopped -> do
-                handleEvent state serverEvt  -- Update state (sets isRunning to False)
-                return True
-              _ -> do
-                handleEvent state serverEvt
-                return False
-
-        -- Redraw ONLY if we are continuing
-        if shouldStop
-          then do
-            atomically $ writeTVar (isRunning state) False
-            V.shutdown vty
-          else do
-            -- Build and update image
-            img <- buildUI state
-            update vty (picForImage img)
-            loop
-
-  -- Initial render
-  img <- buildUI state
-  update vty (picForImage img)
-
-  loop
-
-handleEvent :: ServerState -> ServerEvent -> IO ()
-handleEvent state event = case event of
-  PeerConnected addr -> do
-    atomically $ do
-      currentPeers <- readTVar (peers state)
-      writeTVar (peers state) (S.insert addr currentPeers)
-
-  MessageReceived _ bytes -> do
-    atomically $ do
-      count <- readTVar (messagesReceived state)
-      writeTVar (messagesReceived state) (count + 1)
-
-  MessageBroadcast peerCount -> do
-    atomically $ do
-      count <- readTVar (messagesBroadcast state)
-      writeTVar (messagesBroadcast state) (count + 1)
-
-  ParseError _ bytes -> do
-    atomically $ do
-      count <- readTVar (parseErrors state)
-      writeTVar (parseErrors state) (count + 1)
-
-  ServerStarted addr -> do
-    atomically $ writeTVar (serverAddress state) (Just addr)
-
-  ServerStopped -> do
-    atomically $ writeTVar (isRunning state) False
-
--- Helper to ensure content exactly fills the available width
-padToRight :: Int -> Image -> Image
-padToRight targetWidth content =
-  let currentW = V.imageWidth content
-      paddingNeeded = max 0 (targetWidth - currentW)
-  in content <|> string defAttr (replicate paddingNeeded ' ')
-
-buildUI :: ServerState -> IO Image
-buildUI state = do
-  addr <- readTVarIO (serverAddress state)
-  peerSet <- readTVarIO (peers state)
-  msgCount <- readTVarIO (messagesReceived state)
-  broadcastCount <- readTVarIO (messagesBroadcast state)
-  errorCount <- readTVarIO (parseErrors state)
-  running <- readTVarIO (isRunning state)
-  boxWidth <- readTVarIO (terminalWidth state)  -- Dynamic width from state
-  inputBuf <- readTVarIO (inputBuffer state)  -- Current input text
-
-  -- 1. Define standard inner width (Total width - 4 for borders "│ " and " │")
-  let innerWidth = boxWidth - 4
-
-  -- 2. Update boxLine to use strict sizing with matching border color
-  -- "│ " is 2 chars, " │" is 2 chars. Content must be innerWidth.
-  let boxLine attr content =
-        string attr "│ " <|> padToRight innerWidth content <|> string attr " │"
-
-  -- 3. Helper to create box header with correct padding
-  -- Format: "┌─ Title ──┐" where dashes fill to boxWidth
-  -- Total: "┌─ " (3) + title + " " (1) + dashes + "┐" (1) = boxWidth
-  -- So: dashes = boxWidth - 3 - length title - 1 - 1 = boxWidth - length title - 5
-  let boxHeader title attr =
-        let prefix = "┌─ "
-            suffix = " "
-            titleLen = length title
-            dashesNeeded = boxWidth - length prefix - titleLen - length suffix - 1  -- -1 for "┐"
-        in string attr (prefix ++ title ++ suffix ++ replicate dashesNeeded '─' ++ "┐")
-
-  -- 4. Helper to create box footer
-  -- Format: "└" + dashes + "┘" = boxWidth
-  -- So: dashes = boxWidth - 2
-  let boxFooter attr =
-        string attr ("└" ++ replicate (boxWidth - 2) '─' ++ "┘")
-
-  -- Header
-  let blueBoldAttr = withForeColor (withStyle defAttr bold) blue
-  let headerText = "GIMMEL UDP CHAT SERVER"
-  let headerPadding = (boxWidth - 2 - length headerText) `div` 2
-  let header = string blueBoldAttr ("╔" ++ replicate (boxWidth - 2) '═' ++ "╗") <->
-               string blueBoldAttr ("║" ++ replicate headerPadding ' ' ++ headerText ++ replicate (boxWidth - 2 - length headerText - headerPadding) ' ' ++ "║") <->
-               string blueBoldAttr ("╚" ++ replicate (boxWidth - 2) '═' ++ "╝")
-
-  -- Server Status
-  let greenBoldAttr = withForeColor (withStyle defAttr bold) green
-  let redBoldAttr = withForeColor (withStyle defAttr bold) red
-  let statusText = case addr of
-        Just a -> string defAttr "Status: " <|>
-                  string greenBoldAttr "RUNNING" <|>
-                  string defAttr "  Address: " <|>
-                  string defAttr (take 30 a)  -- Truncate address if too long
-        Nothing -> string defAttr "Status: " <|>
-                   string redBoldAttr "STOPPED"
-
-  let statusBox = boxHeader "Server Status" blueBoldAttr <->
-                  boxLine blueBoldAttr statusText <->
-                  boxFooter blueBoldAttr
-
-  -- Statistics
-  let cyanBoldAttr = withForeColor (withStyle defAttr bold) cyan
-  let statsText = string defAttr "Received: " <|>
-                  string cyanBoldAttr (show msgCount) <|>
-                  string defAttr "  Broadcasts: " <|>
-                  string cyanBoldAttr (show broadcastCount) <|>
-                  string defAttr "  Errors: " <|>
-                  string redBoldAttr (show errorCount)
-
-  let yellowBoldAttr = withForeColor (withStyle defAttr bold) yellow
-  let statsBox = boxHeader "Statistics" yellowBoldAttr <->
-                 boxLine yellowBoldAttr statsText <->
-                 boxFooter yellowBoldAttr
-
-  -- Connected Peers
-  let magentaBoldAttr = withForeColor (withStyle defAttr bold) magenta
-  let whiteAttr = withForeColor defAttr white
-  let peerCount = S.size peerSet
-  let peerHeaderTitle = "Connected Peers (" ++ show peerCount ++ ")"
-  let peerHeader = boxHeader peerHeaderTitle magentaBoldAttr
-
-  let peerLines = if S.null peerSet then
-        [boxLine magentaBoldAttr (string whiteAttr "No peers connected yet...")]
-      else
-        map (\peer -> let peerStr = show peer
-                          -- Truncate peer address to fit in innerWidth (accounting for "• " prefix)
-                          maxPeerLen = innerWidth - 2  -- -2 for "• " prefix
-                          displayStr = take maxPeerLen peerStr
-                          peerText = string defAttr "• " <|> string defAttr displayStr
-                      in boxLine magentaBoldAttr peerText) (S.toList peerSet)
-
-  let peersBox = peerHeader <->
-                 foldl (<->) emptyImage peerLines <->
-                 boxFooter magentaBoldAttr
-
-  -- Input Box
-  let inputPrompt = string defAttr "Message: "
-  -- Maximum message length is 256 characters
-  let maxMessageLen = 256
-  -- Truncate input buffer to fit in innerWidth (accounting for prompt)
-  let promptLen = 9  -- Length of "Message: "
-  let maxDisplayLen = innerWidth - promptLen
-  let displayInput = take maxDisplayLen inputBuf
-  let inputText = inputPrompt <|> string cyanBoldAttr displayInput
-  -- Show cursor position indicator if text is truncated for display
-  let displayIndicator = if length inputBuf > maxDisplayLen then "..." else ""
-  -- Show warning if approaching or at message limit
-  let msgLen = length inputBuf
-  let limitIndicator
-        | msgLen >= maxMessageLen = string redBoldAttr (" [MAX: " ++ show maxMessageLen ++ "]")
-        | msgLen > maxMessageLen - 10 = string yellowBoldAttr (" [" ++ show msgLen ++ "/" ++ show maxMessageLen ++ "]")
-        | otherwise = emptyImage
-  let inputContent = inputText <|> string defAttr displayIndicator <|> limitIndicator
-
-  let inputBox = boxHeader "Send Message" cyanBoldAttr <->
-                 boxLine cyanBoldAttr inputContent <->
-                 boxFooter cyanBoldAttr
-
-  -- Footer
-  let footerText = string defAttr "Press 'q' to quit, Enter to send, Ctrl+C to shutdown"
-  let footer = string defAttr ("┌" ++ replicate (boxWidth - 2) '─' ++ "┐") <->
-               boxLine defAttr footerText <->
-               string defAttr ("└" ++ replicate (boxWidth - 2) '─' ++ "┘")
-
-  return $ header <-> string defAttr "" <-> statusBox <-> string defAttr "" <-> statsBox <-> string defAttr "" <-> peersBox <-> string defAttr "" <-> inputBox <-> string defAttr "" <-> footer
-
-shutdownTUI :: ServerState -> IO ()
-shutdownTUI state = do
-  atomically $ writeTVar (isRunning state) False
-  maybeVty <- readTVarIO (vtyHandle state)
-  case maybeVty of
-    Just vty -> do
-      shutdownMessage <- buildShutdownMessage
-      update vty (picForImage shutdownMessage)
-      -- Note: V.shutdown will be called by runTUI's loop when it exits
-      -- This function just sets the flag
-    Nothing -> return ()
-  where
-    buildShutdownMessage = return $
-      string (withForeColor (withStyle defAttr bold) red) "Shutting down server..." <->
-      string defAttr "Closing sockets..." <->
-      string (withForeColor (withStyle defAttr bold) green) "Server stopped gracefully."
+  -- Corrected customMain call:
+  -- 1. initialVty (the handle)
+  -- 2. buildVty (the IO action to rebuild on resume)
+  void $ customMain initialVty buildVty (Just bChan) app initialState

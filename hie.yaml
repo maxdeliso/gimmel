@@ -1,2 +1,4 @@
 cradle:
   stack:
+    - path: "."
+      component: "gimmel:exe:gimmel-exe"

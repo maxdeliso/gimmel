@@ -8,6 +8,8 @@ allow-newer: true
 allow-newer-deps:
   - vty-windows
   - time
+  - fourmolu
+  - Cabal-syntax
 
 extra-deps:
   - vty-crossplatform-0.4.0.0
@@ -16,3 +18,5 @@ extra-deps:
   - directory-1.3.9.0@sha256:ed6784601c6a800d4c1e40efbc9f20cf33ae2f25cac301fc239f9c91947b816b,3307
   - process-1.6.26.1@sha256:6def2e07c317f52f4d30c43e92f97b7bc5f7c27cb1270d386b15dce429e1180f,2947
   - time-1.12.2@sha256:88e8493d9130038d3b9968a2530a0900141cd3d938483c83dde56e12b875ebc8,6510
+  - Cabal-syntax-3.10.3.0@sha256:5904508da905b34d995a704a86970de489cc4495dd981b1cfe5fb5baa2bde71b,7672
+  - fourmolu-0.13.1.0
