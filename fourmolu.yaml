@@ -1,0 +1,30 @@
+# Fourmolu configuration file
+# See: https://github.com/fourmolu/fourmolu
+
+# Column width for formatting (maximum line length)
+column-limit: 100
+
+# Indentation width
+indentation: 2
+
+# Whether to respect default-extensions from .cabal files
+respectful: true
+
+# Whether to use Haddock-style comment formatting
+haddock-style: multi-line
+
+# Whether to format record fields with a comma-leading style
+comma-style: leading
+
+# Whether to add space after record braces
+record-brace-space: false
+
+# Whether to indent where clauses
+indent-wheres: false
+
+# Whether to use diff-friendly import/export lists
+diff-friendly-import-export: true
+
+# Number of newlines between top-level declarations
+newlines-between-decls: 1
+

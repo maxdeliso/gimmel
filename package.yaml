@@ -1,5 +1,5 @@
 name: gimmel
-version: 0.2.0.4
+version: 0.3.0.0
 github: "maxdeliso/gimmel"
 license: MIT
 author: "Max DeLiso"
@@ -21,6 +21,15 @@ dependencies:
   - bytestring>=0.11.5.3
   - vty>=5.38
   - vty-crossplatform>=0.2.0.0
+  - brick>=0.70.0
+  - microlens>=0.4.13.0
+  - microlens-th>=0.4.3.17
+  - mtl>=2.3.1
+  - monad-logger>=0.3.40
+  - fast-logger>=3.1.0
+  - text>=2.0.0
+  - unliftio-core>=0.2.1.0
+  - async>=2.2.5
 
 executables:
   gimmel-exe:
@@ -30,3 +39,17 @@ executables:
       - -threaded
       - -rtsopts
       - -with-rtsopts=-N
+  test-net:
+    main: TestNet.hs
+    source-dirs:
+      - app
+      - test
+    other-modules:
+      - Message
+      - MonadNet
+      - Net
+      - Options
+      - TUI
+    ghc-options:
+      - -threaded
+      - -rtsopts

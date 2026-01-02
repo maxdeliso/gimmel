@@ -7,9 +7,7 @@ previously successfully delivered a message.
 
 ## howto
 
-## Testing
-
-To test the server:
+To run it:
 
 1. **Start the server** in one terminal:
    ```bash
