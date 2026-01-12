@@ -363,9 +363,12 @@ processIncoming ::
 processIncoming sock msgData senderAddr seen =
   case decodeMsg msgData of
     Just decodedMsg -> do
-      logInfoN $ "Broadcasting valid message to " <> T.pack (show (S.size seen)) <> " peers"
-      emitEvent $ MessageBroadcast senderAddr (to decodedMsg) (msg decodedMsg) (S.size seen)
-      broadcastMsg sock (BL.toStrict $ encodeMsg decodedMsg) seen
+      -- Exclude the sender from the broadcast list to prevent retry loops
+      -- (when you send a broadcast, your own socket receives it back)
+      let recipients = S.delete senderAddr seen
+      logInfoN $ "Broadcasting valid message to " <> T.pack (show (S.size recipients)) <> " peers"
+      emitEvent $ MessageBroadcast senderAddr (to decodedMsg) (msg decodedMsg) (S.size recipients)
+      broadcastMsg sock (BL.toStrict $ encodeMsg decodedMsg) recipients
     Nothing -> do
       let received = BL.take 200 msgData
       let errorMsg = "Failed to decode: " ++ BL.unpack received
