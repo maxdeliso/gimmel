@@ -53,3 +53,11 @@ executables:
     ghc-options:
       - -threaded
       - -rtsopts
+
+when:
+  - condition: os(windows)
+    dependencies:
+      - Win32
+  - condition: "!os(windows)"
+    dependencies:
+      - unix

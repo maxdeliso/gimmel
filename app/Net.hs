@@ -20,7 +20,7 @@ module Net (
   runNetM,
 ) where
 
-import Message (Message (..), decodeMsg, encodeMsg)
+import Message (Message (..), BeaconMessage (..), decodeMsg, decodeBeacon, encodeMsg, encodeBeacon)
 import MonadNet (MonadNet (..))
 import Options (IPVersion (..), Options (..), ipVersionOpt)
 import TUI (ServerEvent (..), updateTUI)
@@ -28,7 +28,7 @@ import TUI (ServerEvent (..), updateTUI)
 import Data.Foldable (traverse_)
 import qualified Data.Set as S
 
-import Control.Concurrent (MVar, forkIO, modifyMVar_, newMVar, readMVar)
+import Control.Concurrent (MVar, ThreadId, forkIO, modifyMVar_, newMVar, readMVar, threadDelay)
 import Control.Concurrent.STM (
   TChan,
   TVar,
@@ -65,15 +65,18 @@ import Network.Socket (
   PortNumber,
   SockAddr (..),
   Socket,
+  SocketOption (Broadcast),
   SocketType (Datagram),
   bind,
   close,
   defaultHints,
   getAddrInfo,
+  setSocketOption,
   socket,
   tupleToHostAddress,
   withSocketsDo,
  )
+import Network.Socket.ByteString (sendTo)
 import qualified Network.Socket.ByteString as NSB
 import System.IO (
   BufferMode (LineBuffering),
@@ -216,9 +219,21 @@ netMain userOptions eventChan peersSeen = withSocketsDo $ do
     traverse_
       ( \addr -> do
           sock <- connectAndRun addr
+          -- Set socket options for beaconing (production Socket only)
+          -- IPv4: Enable broadcast for sending to 255.255.255.255
+          -- IPv6: No special options needed for sending to multicast addresses
+          liftIO $ case addrFamily addr of
+            AF_INET -> setSocketOption (sock :: Socket) Broadcast 1
+            _ -> return ()
           liftIO $ modifyMVar_ socketsVar (\socks -> return (sock : socks))
       )
       serverAddrs
+
+    -- Start beacon sender if enabled
+    -- Note: beaconEnabledOpt is inverted - True means disable-beacon was set
+    -- So we check 'not' to enable beaconing when the flag is NOT set
+    when (not $ beaconEnabledOpt userOptions) $ do
+      void $ liftIO $ startBeaconing resources userOptions serverAddrs
 
   return resources
 
@@ -264,32 +279,51 @@ handleIncomingMessage ::
 handleIncomingMessage sock msgData senderAddr = do
   resources <- asks envResources
 
-  -- Check if this is a new peer
-  isNew <- liftIO $ atomically $ do
-    seen <- readTVar (peersSeen resources)
-    if S.member senderAddr seen
-      then return False
-      else do
-        writeTVar (peersSeen resources) (S.insert senderAddr seen)
-        return True
+  -- Check if this is a beacon message
+  case decodeBeacon (BL.fromStrict msgData) of
+    Just beacon -> do
+      -- This is a beacon, add sender to peers if new
+      isNew <- liftIO $ atomically $ do
+        seen <- readTVar (peersSeen resources)
+        if S.member senderAddr seen
+          then return False
+          else do
+            writeTVar (peersSeen resources) (S.insert senderAddr seen)
+            return True
 
-  when isNew $ do
-    logInfoN $ T.pack $ "New Peer Discovered: " ++ show senderAddr
-    emitEvent $ PeerConnected senderAddr
+      when isNew $ do
+        logInfoN $ T.pack $ "Peer discovered via beacon: " ++ show senderAddr
+        emitEvent $ PeerDiscovered senderAddr
+      return () -- Don't process beacon as regular message
 
-  let msgRecipientId = maybe 0 to (decodeMsg (BL.fromStrict msgData))
-  emitEvent $ MessageReceived senderAddr msgRecipientId (B.length msgData)
+    Nothing -> do
+      -- Regular message processing
+      -- Check if this is a new peer
+      isNew <- liftIO $ atomically $ do
+        seen <- readTVar (peersSeen resources)
+        if S.member senderAddr seen
+          then return False
+          else do
+            writeTVar (peersSeen resources) (S.insert senderAddr seen)
+            return True
 
-  -- Process logic
-  -- We snapshot the peers here to avoid holding the lock during processing
-  peersSnapshot <- liftIO $ readTVarIO (peersSeen resources)
+      when isNew $ do
+        logInfoN $ T.pack $ "New Peer Discovered: " ++ show senderAddr
+        emitEvent $ PeerConnected senderAddr
 
-  -- We fork the processing to keep the listener loop tight
-  withRunInIO $ \run ->
-    void $
-      forkIO $
-        run $
-          processIncoming sock (BL.fromStrict msgData) senderAddr peersSnapshot
+      let msgRecipientId = maybe 0 to (decodeMsg (BL.fromStrict msgData))
+      emitEvent $ MessageReceived senderAddr msgRecipientId (B.length msgData)
+
+      -- Process logic for regular messages
+      -- We snapshot the peers here to avoid holding the lock during processing
+      peersSnapshot <- liftIO $ readTVarIO (peersSeen resources)
+
+      -- We fork the processing to keep the listener loop tight
+      withRunInIO $ \run ->
+        void $
+          forkIO $
+            run $
+              processIncoming sock (BL.fromStrict msgData) senderAddr peersSnapshot
 
 {- | Construct a list of candidate address information structures
 Defaults to IPv6, but can be configured via IPVersion option
@@ -345,6 +379,50 @@ processIncoming sock msgData senderAddr seen =
 broadcastMsg :: (MonadNet m, MonadIO m) => NetSocket m -> B.ByteString -> S.Set SockAddr -> m ()
 broadcastMsg sock msgData =
   mapM_ (sendToPeer sock msgData)
+
+{- | Start the beacon sender thread
+Periodically sends beacon messages to discover peers on the LAN
+-}
+startBeaconing :: ServerResources Socket -> Options -> [AddrInfo] -> IO ThreadId
+startBeaconing resources opts addrs = do
+  let interval = beaconIntervalOpt opts * 1000000 -- Convert to microseconds
+  let port = fromIntegral $ portNumOpt opts
+
+  -- Create beacon message
+  let beacon = BeaconMessage
+        { beaconType = "beacon"
+        , beaconVersion = "1.0"
+        , beaconPort = fromIntegral port
+        , beaconTimestamp = 0 -- Placeholder, can be enhanced later
+        }
+  let beaconData = BL.toStrict $ encodeBeacon beacon
+
+  -- Create target addresses for each socket
+  targetAddrs <- mapM (createBeaconTarget port) addrs
+
+  forkIO $ forever $ do
+    socks <- readMVar (sockets resources)
+    -- Send beacon on each socket to its corresponding target address
+    mapM_ (\(sock, targetAddr) ->
+      catch (void $ sendTo sock beaconData targetAddr)
+            (\(_ :: IOException) -> return ())
+      ) (zip socks targetAddrs)
+    threadDelay interval
+
+{- | Create the target address for beaconing based on address family
+IPv4: broadcast address (255.255.255.255)
+IPv6: all-nodes multicast (ff02::1)
+-}
+createBeaconTarget :: PortNumber -> AddrInfo -> IO SockAddr
+createBeaconTarget port addr = case addrFamily addr of
+  AF_INET -> return $ SockAddrInet port (tupleToHostAddress (255, 255, 255, 255))
+  AF_INET6 -> do
+    -- Resolve IPv6 multicast address ff02::1
+    addrs <- getAddrInfo (Just defaultHints { addrFamily = AF_INET6 }) (Just "ff02::1") (Just $ show port)
+    case addrs of
+      (a : _) -> return $ addrAddress a
+      [] -> return $ addrAddress addr -- Fallback
+  _ -> return $ addrAddress addr -- Fallback to original address
 
 {- | Send a message to all connected peers
 Maximum message length is 256 characters

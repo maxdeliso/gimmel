@@ -23,6 +23,8 @@ data Options = MkOptions
   , msgSizeOpt :: Int
   , ipVersionOpt :: IPVersion
   , logFileOpt :: String
+  , beaconIntervalOpt :: Int
+  , beaconEnabledOpt :: Bool
   }
 
 optParser :: Parser Options
@@ -64,4 +66,15 @@ optParser =
           <> metavar "FILE"
           <> value "server.log"
           <> help "Write logs to FILE (default: server.log)"
+      )
+    <*> option
+      auto
+      ( long "beacon-interval"
+          <> metavar "SECONDS"
+          <> value 5
+          <> help "Send beacon every SECONDS (default: 5)"
+      )
+    <*> switch
+      ( long "disable-beacon"
+          <> help "Disable LAN peer discovery via beaconing"
       )
