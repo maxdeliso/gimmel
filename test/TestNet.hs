@@ -179,6 +179,8 @@ withVirtualNode net port action = do
           , ipVersionOpt = IPv4
           , msgSizeOpt = 1024
           , logFileOpt = "test.log"
+          , beaconIntervalOpt = 5
+          , beaconEnabledOpt = True
           }
 
   -- Use stdout for the log file handle in tests
