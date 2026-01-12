@@ -30,6 +30,7 @@ dependencies:
   - text>=2.0.0
   - unliftio-core>=0.2.1.0
   - async>=2.2.5
+  - unix
 
 executables:
   gimmel-exe:
