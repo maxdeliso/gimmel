@@ -24,7 +24,7 @@ extra-deps:
 
 nix:
   enable: true
-  packages: [zlib]
+  packages: [zlib gmp libffi ncurses]
 
 
 
