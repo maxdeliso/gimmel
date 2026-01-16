@@ -1,0 +1,84 @@
+name: Nix Static Build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  build-static:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Set up Nix flake
+        uses: DeterminateSystems/flake-checker-action@main
+
+      - name: Build static binary with Stack
+        run: |
+          nix develop .#static --command bash -c "
+            export PATH=\$PATH:\$(stack path --compiler-bin)
+            # Build with static linking flags
+            # Stack will use Nix for system dependencies but we'll ensure static linking
+            stack build \
+              --ghc-options='-optl=-static -optl=-pthread -fPIC' \
+              --force-dirty \
+              --system-ghc
+          "
+
+      - name: Verify static binary
+        run: |
+          nix develop .#static --command bash -c "
+            BIN=\$(stack path --local-install-root)/bin/gimmel-exe
+            if [ -f \"\$BIN\" ]; then
+              echo 'Checking binary dependencies...'
+              if ldd \"\$BIN\" 2>&1 | grep -q 'not a dynamic executable'; then
+                echo '✓ Binary is static'
+              else
+                echo '✗ Binary is not static'
+                echo 'Dynamic dependencies:'
+                ldd \"\$BIN\"
+                exit 1
+              fi
+              echo 'Binary info:'
+              file \"\$BIN\"
+              echo 'Checking for Nix store references in strings:'
+              NIX_REFS=\$(strings \"\$BIN\" | grep '/nix/store' | wc -l)
+              if [ \"\$NIX_REFS\" -gt 0 ]; then
+                echo \"⚠ Warning: Binary contains \$NIX_REFS Nix store string references\"
+                echo 'Sample references:'
+                strings \"\$BIN\" | grep '/nix/store' | head -3
+                echo 'Note: String references are usually harmless but may indicate embedded paths'
+              else
+                echo '✓ Binary does not contain Nix store string references'
+              fi
+            else
+              echo 'Binary not found'
+              exit 1
+            fi
+          "
+
+      - name: Copy binary to workspace root
+        run: |
+          nix develop .#static --command bash -c "
+            BIN=\$(stack path --local-install-root)/bin/gimmel-exe
+            if [ -f \"\$BIN\" ]; then
+              cp \"\$BIN\" ./gimmel-exe
+            else
+              echo 'Binary not found at '\$BIN
+              exit 1
+            fi
+          "
+
+      - name: Upload static binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gimmel-static-linux
+          path: gimmel-exe
+          retention-days: 7

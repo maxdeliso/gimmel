@@ -39,6 +39,8 @@ executables:
       - -threaded
       - -rtsopts
       - -with-rtsopts=-N
+      - -optl=-static
+      - -optl=-pthread
   test-net:
     main: TestNet.hs
     source-dirs:
