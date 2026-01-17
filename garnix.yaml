@@ -3,4 +3,6 @@
 builds:
   # Build and cache all packages, checks, and devShells
   include:
-    - "*"
+    - "packages.*.*"
+    - "checks.*.*"
+    - "devShells.*.*"
