@@ -1,0 +1,8 @@
+# Garnix Configuration
+# Documentation: https://garnix.io/docs/yaml
+builds:
+  # Build and cache all packages, checks, and devShells
+  include:
+    - "packages.*.*"
+    - "checks.*.*"
+    - "devShells.*.*"

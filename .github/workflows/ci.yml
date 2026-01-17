@@ -35,6 +35,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@v3
+        with:
+          # Enable experimental features needed for flakes
+          # Configure haskell.nix binary cache to avoid building GHC from source
+          extra-conf: |
+            experimental-features = nix-command flakes
+            extra-trusted-public-keys = hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=
+            extra-substituters = https://cache.iog.io
+
+      - name: Set up Nix flake
+        uses: DeterminateSystems/flake-checker-action@main
+
       - name: Set up Haskell
         uses: haskell-actions/setup@v2
         with:
@@ -42,11 +55,28 @@ jobs:
           stack-version: 3.7.1
           stack-setup-ghc: true
 
-      - name: Build
-        run: stack build
+      - name: Verify Nix is available
+        run: |
+          echo "Nix version: $(nix --version)"
+          echo "Nix path: $(which nix)"
+          echo "Nix store path: $(nix eval --raw --expr 'builtins.storeDir')"
+          echo "Checking flake..."
+          nix flake show . || echo "Note: flake show may require nix-command feature"
+          echo "Testing static shell access..."
+          nix develop .#static --command echo "✓ Static shell is accessible"
+
+      - name: Build (static with haskell.nix)
+        run: ./build.sh
 
       - name: Build test executable
-        run: stack build :test-net
+        run: |
+          # Use the same logic as build.sh - static if Nix available, regular otherwise
+          if command -v nix &> /dev/null 2>&1 && [[ -f flake.nix ]]; then
+            # Try static build with haskell.nix, fallback to regular if it fails
+            nix build .#static-test-net 2>/dev/null || stack build :test-net
+          else
+            stack build :test-net
+          fi
 
       - name: Run test suite
         run: stack exec test-net
