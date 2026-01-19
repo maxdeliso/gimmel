@@ -3,7 +3,7 @@
 #
 # IMPORTANT: Garnix is currently ignoring nixConfig, so it's not using the IOG cache.
 # This causes GHC 9.6.7 to be built from source, which fails with compilation errors.
-# 
+#
 # To fix: Contact Garnix support to enable --accept-flake-config for this repository,
 # or check the Garnix dashboard for settings to trust flake config.
 #
@@ -26,6 +26,9 @@ builds:
   #   - "packages.aarch64-darwin.gimmel-exe"
   #   - "packages.aarch64-darwin.test-net"
   #   - "devShells.aarch64-darwin.default"
-  
-  # Empty include list - no builds until cache is fixed
-  include: []
+
+  # Only include static Linux x86_64 builds (these use musl and may work even without GHC cache)
+  include:
+    - "packages.x86_64-linux.static"
+    - "packages.x86_64-linux.static-gimmel-exe"
+    - "packages.x86_64-linux.static-test-net"
