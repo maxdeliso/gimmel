@@ -3,15 +3,19 @@
 builds:
   # Build and cache all packages, checks, and devShells
   # Note: Static packages (musl) only work on Linux, so we exclude darwin
+  # Note: aarch64-linux devShells are excluded temporarily due to GHC build issues
+  #       when Garnix doesn't use IOG cache (GHC 9.6.7 needs to be built from source)
   include:
     - "packages.x86_64-linux.*"
     - "packages.aarch64-linux.*"
     - "checks.x86_64-linux.*"
     - "checks.aarch64-linux.*"
     - "devShells.x86_64-linux.*"
-    - "devShells.aarch64-linux.*"
     # Only include non-static packages for darwin
     - "packages.aarch64-darwin.default"
     - "packages.aarch64-darwin.gimmel-exe"
     - "packages.aarch64-darwin.test-net"
     - "devShells.aarch64-darwin.default"
+  # Exclude aarch64-linux devShells until Garnix uses IOG cache properly
+  exclude:
+    - "devShells.aarch64-linux.*"
