@@ -11,11 +11,10 @@ builds:
     - "checks.x86_64-linux.*"
     - "checks.aarch64-linux.*"
     - "devShells.x86_64-linux.*"
+    # Note: aarch64-linux devShells excluded - GHC 9.6.7 build fails when
+    #       Garnix doesn't use IOG cache (tries to build GHC from source)
     # Only include non-static packages for darwin
     - "packages.aarch64-darwin.default"
     - "packages.aarch64-darwin.gimmel-exe"
     - "packages.aarch64-darwin.test-net"
     - "devShells.aarch64-darwin.default"
-  # Exclude aarch64-linux devShells until Garnix uses IOG cache properly
-  exclude:
-    - "devShells.aarch64-linux.*"
