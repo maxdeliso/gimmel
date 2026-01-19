@@ -1,6 +1,19 @@
 {
   description = "UDP chat server - static build configuration with haskell.nix";
 
+  # Configure binary caches for haskell.nix and Garnix
+  # This prevents rebuilding GHC from source and enables cache pulls
+  nixConfig = {
+    extra-substituters = [
+      "https://cache.iog.io"
+      "https://cache.garnix.io"
+    ];
+    extra-trusted-public-keys = [
+      "hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ="
+      "cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g="
+    ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     haskellNix = {
