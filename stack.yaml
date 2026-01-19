@@ -21,3 +21,10 @@ extra-deps:
   - Cabal-syntax-3.10.3.0@sha256:5904508da905b34d995a704a86970de489cc4495dd981b1cfe5fb5baa2bde71b,7672
   - fourmolu-0.13.1.0
   - unix-2.8.8.0@sha256:0b239653389dbc5f33129d92ef31e44172c53e6ada373d636d89f09d23cc6009,10318
+
+nix:
+  enable: true
+  packages: [zlib gmp libffi ncurses]
+
+
+
