@@ -2,7 +2,16 @@
 # Documentation: https://garnix.io/docs/yaml
 builds:
   # Build and cache all packages, checks, and devShells
+  # Note: Static packages (musl) only work on Linux, so we exclude darwin
   include:
-    - "packages.*.*"
-    - "checks.*.*"
-    - "devShells.*.*"
+    - "packages.x86_64-linux.*"
+    - "packages.aarch64-linux.*"
+    - "checks.x86_64-linux.*"
+    - "checks.aarch64-linux.*"
+    - "devShells.x86_64-linux.*"
+    - "devShells.aarch64-linux.*"
+    # Only include non-static packages for darwin
+    - "packages.aarch64-darwin.default"
+    - "packages.aarch64-darwin.gimmel-exe"
+    - "packages.aarch64-darwin.test-net"
+    - "devShells.aarch64-darwin.default"
